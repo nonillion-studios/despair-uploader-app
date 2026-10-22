@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <title>Despair Uploader</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: #0a0a0a; color: #fff; padding: 20px;
+    }
+    h1 { font-size: 18px; border-right: 3px solid #fff; padding-right: 10px; }
+    .card {
+      background: #121212; border: 1px solid #232323; border-radius: 16px;
+      padding: 16px; margin-bottom: 16px;
+    }
+    label { display: block; font-size: 12px; color: #999; margin-bottom: 6px; }
+    input, select {
+      width: 100%; background: #1a1a1a; border: 1px solid #262626; color: #fff;
+      border-radius: 10px; padding: 10px; font-size: 13px; margin-bottom: 12px;
+    }
+    button {
+      background: #fff; color: #000; border: none; border-radius: 10px;
+      padding: 10px 16px; font-weight: bold; font-size: 13px; cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.secondary { background: #1a1a1a; color: #fff; border: 1px solid #262626; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .tabs button { background: #1a1a1a; color: #999; border: 1px solid #262626; }
+    .tabs button.active { background: #fff; color: #000; }
+    .status { font-size: 12px; margin-top: 10px; white-space: pre-wrap; }
+    .status.ok { color: #4ade80; }
+    .status.err { color: #f87171; }
+    .row { display: flex; gap: 10px; }
+    .row > div { flex: 1; }
+    #queue { font-size: 12px; margin-top: 10px; }
+    .queue-item { padding: 6px 10px; background: #1a1a1a; border-radius: 8px; margin-bottom: 6px; display: flex; justify-content: space-between; }
+  </style>
+</head>
+<body>
+  <h1>Despair -- تطبيق الرفع</h1>
+
+  <div class="card" id="keyCard">
+    <label>مفتاح API</label>
+    <input id="apiKey" type="password" placeholder="dsp_..." />
+    <button id="saveKeyBtn">حفظ المفتاح</button>
+    <div id="keyStatus" class="status"></div>
+  </div>
+
+  <div class="tabs">
+    <button data-tab="manga" class="active">مانجا</button>
+    <button data-tab="novel">روايات</button>
+    <button data-tab="anime">أنمي</button>
+  </div>
+
+  <div id="tab-manga" class="card">
+    <div class="row">
+      <div>
+        <label>معرّف العمل (work_id)</label>
+        <input id="mangaWorkId" placeholder="wp_xxxxx" />
+      </div>
+      <div>
+        <label>رقم الفصل الأول (اختياري)</label>
+        <input id="mangaStartNum" type="number" />
+      </div>
+    </div>
+    <label>ملف/ملفات الفصول (.zip) -- يدعم فصل واحد أو مجلدات متعددة جوه نفس الـzip</label>
+    <input id="mangaZipFiles" type="file" accept=".zip" multiple />
+    <button id="mangaUploadBtn">رفع</button>
+    <div id="mangaQueue"></div>
+  </div>
+
+  <div id="tab-novel" class="card" style="display:none">
+    <div class="row">
+      <div>
+        <label>معرّف العمل (work_id)</label>
+        <input id="novelWorkId" placeholder="np_xxxxx" />
+      </div>
+      <div>
+        <label>رقم الفصل الأول (اختياري)</label>
+        <input id="novelStartNum" type="number" />
+      </div>
+    </div>
+    <label>ملف/ملفات (.zip يحتوي .txt أو .epub)</label>
+    <input id="novelZipFiles" type="file" accept=".zip" multiple />
+    <button id="novelUploadBtn">رفع</button>
+    <div id="novelQueue"></div>
+  </div>
+
+  <div id="tab-anime" class="card" style="display:none">
+    <label>بحث AniList (اسم العمل)</label>
+    <div class="row">
+      <input id="anilistQuery" placeholder="Naruto, One Piece..." />
+      <button id="anilistSearchBtn" style="max-width:120px">بحث</button>
+    </div>
+    <div id="anilistResults"></div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
