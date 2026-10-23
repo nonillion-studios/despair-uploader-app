@@ -98,6 +98,47 @@ async function uploadQueue({ files, queueEl, buildUrl }) {
   }
 }
 
+// -------------------- Generic work search-picker (for the upload cards) --------------------
+function wireWorkPicker({ searchId, resultsId, hiddenId, worksUrl }) {
+  const searchEl = $(searchId);
+  const resultsEl = $(resultsId);
+  const hiddenEl = $(hiddenId);
+  let timer;
+  searchEl.addEventListener('input', () => {
+    clearTimeout(timer);
+    hiddenEl.value = '';
+    const q = searchEl.value.trim();
+    if (!q) { resultsEl.classList.remove('show'); resultsEl.innerHTML = ''; return; }
+    timer = setTimeout(async () => {
+      try {
+        const data = await apiFetch(`${worksUrl}?q=${encodeURIComponent(q)}`);
+        resultsEl.innerHTML = '';
+        for (const w of data.works || []) {
+          const row = document.createElement('div');
+          row.className = 'work-pick';
+          row.innerHTML = `<img src="${w.cover_url || ''}" /><div class="meta"><b>${w.title_ar || w.title_en || w.id}</b><small>${w.id}</small></div>`;
+          row.addEventListener('click', () => {
+            hiddenEl.value = w.id;
+            searchEl.value = w.title_ar || w.title_en || w.id;
+            resultsEl.classList.remove('show');
+            resultsEl.innerHTML = '';
+          });
+          resultsEl.appendChild(row);
+        }
+        resultsEl.classList.toggle('show', (data.works || []).length > 0);
+      } catch {
+        resultsEl.classList.remove('show');
+      }
+    }, 350);
+  });
+  document.addEventListener('click', (e) => {
+    if (!searchEl.contains(e.target) && !resultsEl.contains(e.target)) resultsEl.classList.remove('show');
+  });
+}
+wireWorkPicker({ searchId: 'mangaWorkSearch', resultsId: 'mangaWorkResults', hiddenId: 'mangaWorkId', worksUrl: '/api/cache/uploader/manga/works' });
+wireWorkPicker({ searchId: 'novelWorkSearch', resultsId: 'novelWorkResults', hiddenId: 'novelWorkId', worksUrl: '/api/cache/uploader/novel/works' });
+wireWorkPicker({ searchId: 'epAnimeSearch', resultsId: 'epAnimeResults', hiddenId: 'epAnimeId', worksUrl: '/api/cache/uploader/anime/works' });
+
 // -------------------- Manga --------------------
 $('mangaUploadBtn').addEventListener('click', async () => {
   const workId = $('mangaWorkId').value.trim();
@@ -143,13 +184,15 @@ $('anilistSearchBtn').addEventListener('click', async () => {
     resultsEl.innerHTML = '';
     for (const r of data.results || []) {
       const row = document.createElement('div');
-      row.className = 'queue-item';
+      row.className = 'work-pick';
+      row.style.cursor = 'default';
       row.innerHTML = `
-        <div class="top">
+        <img src="${r.coverUrl || ''}" />
+        <div class="meta">
           <b>${r.titleRomaji}</b>
-          <button class="secondary small create-btn">إنشاء</button>
+          <small>${r.releaseYear || ''} -- ${r.episodesCount || '?'} حلقة -- ${r.genres.join('، ')}</small>
         </div>
-        <small>${r.releaseYear || ''} -- ${r.episodesCount || '?'} حلقة -- ${r.genres.join('، ')}</small>
+        <button class="secondary small create-btn">إنشاء</button>
       `;
       row.querySelector('.create-btn').addEventListener('click', async (e) => {
         e.target.disabled = true;
@@ -244,6 +287,16 @@ function renderWorkManager(containerId, cfg) {
       <h2>${existing ? '✏️ تعديل العمل' : '➕ إنشاء عمل جديد'}</h2>
       ${WORK_FIELDS.map(([key, label, type]) => {
         const value = key === 'genres' ? (vals.genres || []).join('، ') : (vals[key] ?? '');
+        if (key === 'cover_url') {
+          return `<label>${label}</label>
+            <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:14px">
+              <input id="${containerId}-f-cover_url" type="text" value="${value}" style="flex:1" />
+              <input id="${containerId}-f-cover-file" type="file" accept="image/*" style="display:none" />
+              <button type="button" class="secondary" id="${containerId}-f-cover-pick" style="white-space:nowrap">⬆️ من الجهاز</button>
+              ${value ? `<img src="${value}" id="${containerId}-f-cover-preview" style="width:44px;height:60px;object-fit:cover;border-radius:6px;border:1px solid #262626" />` : `<img id="${containerId}-f-cover-preview" style="width:44px;height:60px;object-fit:cover;border-radius:6px;border:1px solid #262626;display:none" />`}
+            </div>
+            <div id="${containerId}-f-cover-status" class="status"></div>`;
+        }
         return type === 'textarea'
           ? `<label>${label}</label><textarea id="${containerId}-f-${key}" rows="4" style="width:100%;background:#1a1a1a;border:1px solid #262626;color:#fff;border-radius:12px;padding:11px 13px;font-size:13px;margin-bottom:14px">${value}</textarea>`
           : `<label>${label}</label><input id="${containerId}-f-${key}" type="${type}" value="${value}" />`;
@@ -255,6 +308,29 @@ function renderWorkManager(containerId, cfg) {
       <div id="${containerId}-f-status" class="status"></div>
     `;
     $(`${containerId}-f-cancel`).addEventListener('click', () => { formEl.style.display = 'none'; });
+    $(`${containerId}-f-cover-pick`).addEventListener('click', () => $(`${containerId}-f-cover-file`).click());
+    $(`${containerId}-f-cover-file`).addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const coverStatus = $(`${containerId}-f-cover-status`);
+      coverStatus.textContent = 'جارِ رفع الغلاف...'; coverStatus.className = 'status';
+      try {
+        const res = await fetch(`${API_BASE}/api/cache/uploader/upload-cover?filename=${encodeURIComponent(file.name)}`, {
+          method: 'POST',
+          headers: { 'X-Uploader-Key': getKey(), 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
+        $(`${containerId}-f-cover_url`).value = data.url;
+        const preview = $(`${containerId}-f-cover-preview`);
+        preview.src = data.url;
+        preview.style.display = 'block';
+        coverStatus.textContent = 'تم رفع الغلاف ✓'; coverStatus.className = 'status ok';
+      } catch (err) {
+        coverStatus.textContent = `خطأ: ${err.message}`; coverStatus.className = 'status err';
+      }
+    });
     $(`${containerId}-f-save`).addEventListener('click', async () => {
       const statusEl = $(`${containerId}-f-status`);
       const payload = {};

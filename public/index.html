@@ -96,6 +96,9 @@
     .work-pick .meta { flex: 1; min-width: 0; }
     .work-pick .meta b { font-size: 12px; display: block; }
     .work-pick .meta small { color: #777; }
+    .work-pick-list { position: absolute; top: 100%; left: 0; right: 0; z-index: 20; max-height: 260px; overflow-y: auto; background: #161616; border: 1px solid #262626; border-radius: 12px; margin-top: 4px; display: none; }
+    .work-pick-list.show { display: block; }
+    .work-pick-list .work-pick { margin: 6px; }
 
     .selected-work { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
     .selected-work img { width: 44px; height: 60px; object-fit: cover; border-radius: 8px; background: #222; }
@@ -133,9 +136,11 @@
       <div class="card">
         <h2>⬆️ رفع فصول (zip)</h2>
         <div class="row">
-          <div>
-            <label>معرّف العمل (work_id)</label>
-            <input id="mangaWorkId" placeholder="wp_xxxxx" />
+          <div style="position:relative">
+            <label>العمل</label>
+            <input id="mangaWorkSearch" placeholder="ابحث عن اسم العمل..." autocomplete="off" />
+            <input type="hidden" id="mangaWorkId" />
+            <div id="mangaWorkResults" class="work-pick-list"></div>
           </div>
           <div>
             <label>رقم الفصل الأول (اختياري)</label>
@@ -157,9 +162,11 @@
       <div class="card">
         <h2>⬆️ رفع فصول (zip يحتوي .txt و/أو .epub)</h2>
         <div class="row">
-          <div>
-            <label>معرّف العمل (work_id)</label>
-            <input id="novelWorkId" placeholder="np_xxxxx" />
+          <div style="position:relative">
+            <label>العمل</label>
+            <input id="novelWorkSearch" placeholder="ابحث عن اسم العمل..." autocomplete="off" />
+            <input type="hidden" id="novelWorkId" />
+            <div id="novelWorkResults" class="work-pick-list"></div>
           </div>
           <div>
             <label>رقم الفصل الأول (اختياري)</label>
@@ -181,9 +188,11 @@
       <div class="card">
         <h2>🎬 رفع حلقة</h2>
         <div class="row">
-          <div>
-            <label>معرّف العمل (anime_id)</label>
-            <input id="epAnimeId" placeholder="ap_xxxxx" />
+          <div style="position:relative">
+            <label>العمل</label>
+            <input id="epAnimeSearch" placeholder="ابحث عن اسم العمل..." autocomplete="off" />
+            <input type="hidden" id="epAnimeId" />
+            <div id="epAnimeResults" class="work-pick-list"></div>
           </div>
           <div>
             <label>رقم الحلقة</label>
