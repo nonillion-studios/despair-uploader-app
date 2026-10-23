@@ -124,6 +124,20 @@ async function previewNovelZip(file) {
   });
 }
 
+const CHAPTER_HEADING_RE = /^(?:=+\s*)?(?:الفصل|فصل|chapter)\s*[:\-]?\s*(\d+(?:\.\d+)?)/gim;
+
+async function previewSingleNovelFile(file) {
+  if (/\.epub$/i.test(file.name)) {
+    // Real chapter count needs full EPUB spine parsing (server-side only);
+    // just confirm it'll be auto-split along the book's own chapters.
+    return [{ label: 'سيتم تقسيمه تلقائيًا حسب فصول EPUB الداخلية', count: 1, parsedNumber: null }];
+  }
+  const text = await file.text();
+  const matches = [...text.matchAll(CHAPTER_HEADING_RE)];
+  if (matches.length === 0) return [{ label: 'لا توجد عناوين فصول داخل الملف -- سيُرفع كفصل واحد', count: 1, parsedNumber: null }];
+  return matches.map((m) => ({ label: `الفصل ${m[1]}`, count: 1, parsedNumber: Number(m[1]) }));
+}
+
 function assignChapterNumbers(items, startNum) {
   let nextSeq = startNum || 1;
   return items.map((it) => {
@@ -142,7 +156,8 @@ function renderZipPreview({ previewEl, files, startNumInput, kind }) {
     box.innerHTML = `<div class="zpf">📦 ${file.name} -- جارِ تحليل المحتوى...</div>`;
     previewEl.appendChild(box);
     try {
-      const raw = kind === 'manga' ? await previewMangaZip(file) : await previewNovelZip(file);
+      const isRawNovelFile = kind === 'novel' && !/\.zip$/i.test(file.name);
+      const raw = kind === 'manga' ? await previewMangaZip(file) : isRawNovelFile ? await previewSingleNovelFile(file) : await previewNovelZip(file);
       const startNum = Number(startNumInput.value || 0) || null;
       const assigned = assignChapterNumbers(raw, startNum);
       const isMulti = assigned.length > 1;
@@ -169,7 +184,7 @@ function makeUploadId() {
   return `up_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-async function uploadQueue({ files, queueEl, buildChunkQs }) {
+async function uploadQueue({ files, queueEl, buildChunkQs, buildSingleUrl }) {
   queueEl.innerHTML = '';
   for (const file of files) {
     const row = document.createElement('div');
@@ -184,6 +199,43 @@ async function uploadQueue({ files, queueEl, buildChunkQs }) {
       </div>
     `;
     queueEl.appendChild(row);
+
+    // Raw .txt/.epub novel files skip the chunked protocol (always small
+    // enough for one request) and go straight to the single-file endpoint.
+    if (buildSingleUrl && !/\.zip$/i.test(file.name)) {
+      const stEl = row.querySelector('.st');
+      const fillEl = row.querySelector('.fill');
+      row.querySelector('.btns').style.display = 'none';
+      await new Promise((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${API_BASE}${buildSingleUrl(file)}`);
+        xhr.setRequestHeader('X-Uploader-Key', getKey());
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        xhr.upload.onprogress = (e) => {
+          if (!e.lengthComputable) return;
+          const pct = Math.round((e.loaded / e.total) * 100);
+          fillEl.style.width = `${pct}%`;
+          stEl.textContent = `${pct}%`;
+        };
+        xhr.onload = () => {
+          let data = {};
+          try { data = JSON.parse(xhr.responseText); } catch { /* ignore */ }
+          if (xhr.status >= 200 && xhr.status < 300 && data.ok !== false) {
+            const chapters = data.chapters || [];
+            const okCount = chapters.filter((c) => c.success).length;
+            stEl.textContent = `✓ ${okCount}/${chapters.length} فصل`;
+            stEl.style.color = '#4ade80';
+          } else {
+            stEl.textContent = `✗ ${data.error || `HTTP ${xhr.status}`}`;
+            stEl.style.color = '#f87171';
+          }
+          resolve();
+        };
+        xhr.onerror = () => { stEl.textContent = '✗ خطأ شبكة'; stEl.style.color = '#f87171'; resolve(); };
+        xhr.send(file);
+      });
+      continue;
+    }
     const stEl = row.querySelector('.st');
     const fillEl = row.querySelector('.fill');
     const pauseBtn = row.querySelector('.pause-btn');
@@ -344,6 +396,11 @@ $('novelUploadBtn').addEventListener('click', async () => {
       const qs = new URLSearchParams({ kind: 'novel', work_id: workId });
       if (startNum) qs.set('start_chapter_number', startNum);
       return `/api/cache/uploader/chapter-zip/chunk?${qs}`;
+    },
+    buildSingleUrl: (file) => {
+      const qs = new URLSearchParams({ work_id: workId, filename: file.name });
+      if (startNum) qs.set('start_chapter_number', startNum);
+      return `/api/cache/uploader/novel/single-file?${qs}`;
     },
   });
 });
@@ -800,9 +857,14 @@ async function stageVideoFile(file, onProgress) {
   });
 }
 
-async function uploadEpisodeToHosts({ episodeId, animeId, hosts, stagedUrl, newTitle, statusEl }) {
+async function uploadEpisodeToHosts({ episodeId, animeId, hosts, stagedUrl, stagedId, newTitle, statusEl }) {
   statusEl.innerHTML = hosts.map((h) => `<div class="host-row" data-host="${h}">${HOST_LABELS[h]}: <span class="st">جارِ البدء...</span></div>`).join('');
-  await Promise.all(hosts.map(async (host, idx) => {
+  // Each host's own server pulls the video FROM our stagedUrl directly
+  // (server-to-server, never through this app) -- our server only holds
+  // the file as a short-lived relay while that pull is in progress. Once
+  // every host here reaches a terminal state we delete it immediately
+  // instead of waiting on the TTL sweep, so it doesn't linger on disk.
+  const outcomes = await Promise.all(hosts.map(async (host, idx) => {
     const rowSt = statusEl.querySelector(`[data-host="${host}"] .st`);
     try {
       const startData = await apiFetch('/api/cache/admin/anime/host-upload/start', {
@@ -810,7 +872,7 @@ async function uploadEpisodeToHosts({ episodeId, animeId, hosts, stagedUrl, newT
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ episodeId, animeId, slot: idx + 1, host, sourceUrl: stagedUrl, newTitle }),
       });
-      if (startData.job?.status === 'error') { rowSt.textContent = `✗ ${startData.job.error}`; rowSt.style.color = '#f87171'; return; }
+      if (startData.job?.status === 'error') { rowSt.textContent = `✗ ${startData.job.error}`; rowSt.style.color = '#f87171'; return 'error'; }
       // Poll until done/error -- the server's own background sweep also
       // advances this independently, so closing the app mid-upload is safe;
       // polling here is just for live UI feedback while the app stays open.
@@ -818,16 +880,26 @@ async function uploadEpisodeToHosts({ episodeId, animeId, hosts, stagedUrl, newT
         await new Promise((r) => setTimeout(r, 4000));
         const pollData = await apiFetch(`/api/cache/admin/anime/host-upload/poll?episodeId=${episodeId}&slot=${idx + 1}`);
         const job = pollData.job;
-        if (job.status === 'done') { rowSt.textContent = '✓ تم'; rowSt.style.color = '#4ade80'; return; }
-        if (job.status === 'error') { rowSt.textContent = `✗ ${job.error || 'فشل'}`; rowSt.style.color = '#f87171'; return; }
+        if (job.status === 'done') { rowSt.textContent = '✓ تم'; rowSt.style.color = '#4ade80'; return 'done'; }
+        if (job.status === 'error') { rowSt.textContent = `✗ ${job.error || 'فشل'}`; rowSt.style.color = '#f87171'; return 'error'; }
         rowSt.textContent = `${job.status}... ${job.progress || 0}%`;
       }
       rowSt.textContent = 'يستمر في الخلفية...';
+      return 'background';
     } catch (err) {
       rowSt.textContent = `✗ ${err.message}`;
       rowSt.style.color = '#f87171';
+      return 'error';
     }
   }));
+
+  if (stagedId && outcomes.every((o) => o === 'done' || o === 'error')) {
+    apiFetch('/api/cache/admin/anime/stage-video/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: stagedId }),
+    }).catch(() => { /* best-effort -- the server's TTL sweep still catches it */ });
+  }
 }
 
 $('epUploadBtn').addEventListener('click', async () => {

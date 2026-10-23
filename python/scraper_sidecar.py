@@ -32,6 +32,16 @@ import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 
+# PyInstaller on Windows attaches a cp1252 console by default, which can't
+# encode Arabic text -- without this, any Arabic in a progress/error line
+# crashes the whole process with UnicodeEncodeError instead of reporting
+# the actual error.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 try:
     from curl_cffi import requests as cfreq
     HAVE_CURL_CFFI = True
