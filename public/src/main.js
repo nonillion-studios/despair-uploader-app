@@ -481,3 +481,98 @@ renderWorkManager('anime-manager', {
   // not a blank manual form.
   updateUrl: (id) => `/api/cache/uploader/anime/work/${id}`,
 });
+
+// -------------------- Anime: episode creation + multi-host upload --------------------
+const HOST_LABELS = { earnvid: 'EarnVid', doodstream: 'Doodstream', voe: 'VOE' };
+
+async function stageVideoFile(file, onProgress) {
+  const key = getKey();
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/api/cache/admin/anime/stage-video?filename=${encodeURIComponent(file.name)}`);
+    xhr.setRequestHeader('X-Uploader-Key', key);
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+    });
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && data.ok) resolve(data);
+        else reject(new Error(data.error || `HTTP ${xhr.status}`));
+      } catch (e) { reject(e); }
+    };
+    xhr.onerror = () => reject(new Error('فشل الاتصال أثناء الرفع'));
+    xhr.send(file);
+  });
+}
+
+async function uploadEpisodeToHosts({ episodeId, animeId, hosts, stagedUrl, newTitle, statusEl }) {
+  statusEl.innerHTML = hosts.map((h) => `<div class="host-row" data-host="${h}">${HOST_LABELS[h]}: <span class="st">جارِ البدء...</span></div>`).join('');
+  await Promise.all(hosts.map(async (host, idx) => {
+    const rowSt = statusEl.querySelector(`[data-host="${host}"] .st`);
+    try {
+      const startData = await apiFetch('/api/cache/admin/anime/host-upload/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ episodeId, animeId, slot: idx + 1, host, sourceUrl: stagedUrl, newTitle }),
+      });
+      if (startData.job?.status === 'error') { rowSt.textContent = `✗ ${startData.job.error}`; rowSt.style.color = '#f87171'; return; }
+      // Poll until done/error -- the server's own background sweep also
+      // advances this independently, so closing the app mid-upload is safe;
+      // polling here is just for live UI feedback while the app stays open.
+      for (let i = 0; i < 200; i++) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const pollData = await apiFetch(`/api/cache/admin/anime/host-upload/poll?episodeId=${episodeId}&slot=${idx + 1}`);
+        const job = pollData.job;
+        if (job.status === 'done') { rowSt.textContent = '✓ تم'; rowSt.style.color = '#4ade80'; return; }
+        if (job.status === 'error') { rowSt.textContent = `✗ ${job.error || 'فشل'}`; rowSt.style.color = '#f87171'; return; }
+        rowSt.textContent = `${job.status}... ${job.progress || 0}%`;
+      }
+      rowSt.textContent = 'يستمر في الخلفية...';
+    } catch (err) {
+      rowSt.textContent = `✗ ${err.message}`;
+      rowSt.style.color = '#f87171';
+    }
+  }));
+}
+
+$('epUploadBtn').addEventListener('click', async () => {
+  const animeId = $('epAnimeId').value.trim();
+  const startNum = Number($('epNumber').value);
+  const baseTitle = $('epTitle').value.trim();
+  const hosts = Array.from(document.querySelectorAll('.hostChk:checked')).map((c) => c.value);
+  const files = Array.from($('epVideoFiles').files);
+  if (!animeId || !startNum || files.length === 0 || hosts.length === 0) return alert('حدد معرّف العمل، رقم الحلقة، سيرفر واحد على الأقل، وملف فيديو واحد على الأقل');
+
+  const queueEl = $('epQueue');
+  queueEl.innerHTML = '';
+
+  // Files upload in parallel (each handles its own staging + multi-host
+  // dispatch independently), episode numbers increment per file in the
+  // order they were picked.
+  await Promise.all(files.map(async (file, i) => {
+    const episodeNumber = startNum + i;
+    const box = document.createElement('div');
+    box.className = 'queue-item';
+    box.innerHTML = `<div class="top"><b>الحلقة ${episodeNumber} -- ${file.name}</b><span class="st">جارِ رفع الملف للسيرفر المؤقت...</span></div><div class="hostStatus" style="margin-top:6px"></div>`;
+    queueEl.appendChild(box);
+    const topSt = box.querySelector('.st');
+    const hostStatusEl = box.querySelector('.hostStatus');
+
+    try {
+      const created = await apiFetch('/api/cache/uploader/anime/episode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ anime_id: animeId, episode_number: episodeNumber, title: baseTitle || undefined }),
+      });
+      const staged = await stageVideoFile(file, (pct) => { topSt.textContent = `جارِ رفع الملف للسيرفر المؤقت... ${pct}%`; });
+      topSt.textContent = 'تم الرفع المؤقت، جارِ التوزيع على السيرفرات...';
+      await uploadEpisodeToHosts({ episodeId: created.id, animeId, hosts, stagedUrl: staged.url, newTitle: baseTitle || `Episode ${episodeNumber}`, statusEl: hostStatusEl });
+      topSt.textContent = 'انتهى';
+      topSt.style.color = '#4ade80';
+    } catch (err) {
+      topSt.textContent = `✗ ${err.message}`;
+      topSt.style.color = '#f87171';
+    }
+  }));
+});

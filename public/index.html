@@ -179,6 +179,31 @@
       <p class="subtitle">ابحث عن عمل موجود، أو أنشئ عمل جديد عن طريق AniList</p>
       <div id="anime-manager"></div>
       <div class="card">
+        <h2>🎬 رفع حلقة</h2>
+        <div class="row">
+          <div>
+            <label>معرّف العمل (anime_id)</label>
+            <input id="epAnimeId" placeholder="ap_xxxxx" />
+          </div>
+          <div>
+            <label>رقم الحلقة</label>
+            <input id="epNumber" type="number" />
+          </div>
+        </div>
+        <label>عنوان الحلقة (اختياري)</label>
+        <input id="epTitle" />
+        <label>السيرفرات</label>
+        <div class="row" style="margin-bottom:14px">
+          <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" class="hostChk" value="earnvid" checked style="width:auto;margin:0" /> EarnVid</label>
+          <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" class="hostChk" value="doodstream" checked style="width:auto;margin:0" /> Doodstream</label>
+          <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" class="hostChk" value="voe" checked style="width:auto;margin:0" /> VOE</label>
+        </div>
+        <label>ملف/ملفات الفيديو (حلقة واحدة أو أكتر دفعة واحدة)</label>
+        <input id="epVideoFiles" type="file" accept="video/*" multiple />
+        <button id="epUploadBtn">رفع</button>
+        <div id="epQueue" style="margin-top:14px"></div>
+      </div>
+      <div class="card">
         <h2>🔎 إنشاء عمل جديد عن طريق AniList</h2>
         <p class="subtitle" style="margin:0 0 10px">إنشاء فوري بدون انتظار موافقة، مع ترجمة الوصف والتصنيفات تلقائيًا</p>
         <div class="row">
