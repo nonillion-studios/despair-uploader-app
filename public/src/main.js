@@ -72,29 +72,178 @@ $('saveKeyBtn').addEventListener('click', () => {
 });
 checkKey();
 
-// -------------------- Generic multi-file queued upload --------------------
+// -------------------- Zip content preview (client-side, via JSZip) --------------------
+// Mirrors server/cache-api.mjs's groupZipEntriesIntoChapters/parseChapterNumberFromFolderName
+// so the admin sees exactly how the zip will be split BEFORE it's uploaded.
+function naturalCompare(a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); }
+function parseChapterNumFromName(name) {
+  const m = name.match(/(\d+(?:\.\d+)?)/);
+  return m ? Number(m[1]) : null;
+}
+
+async function previewMangaZip(file) {
+  const zip = await JSZip.loadAsync(file);
+  const imageEntries = Object.values(zip.files)
+    .filter((f) => !f.dir && /\.(jpe?g|png|webp)$/i.test(f.name))
+    .map((f) => ({ path: f.name, segments: f.name.split('/').filter(Boolean) }));
+  if (imageEntries.length === 0) throw new Error('لا توجد صور داخل الملف');
+  const maxDepth = Math.max(...imageEntries.map((e) => e.segments.length));
+  let buckets;
+  if (maxDepth <= 1) {
+    buckets = [{ label: null, entries: imageEntries }];
+  } else {
+    const topFolders = [...new Set(imageEntries.map((e) => e.segments[0]))];
+    if (topFolders.length > 1) {
+      buckets = topFolders.map((folder) => ({ label: folder, entries: imageEntries.filter((e) => e.segments[0] === folder) }));
+    } else {
+      const wrapper = topFolders[0];
+      const inner = imageEntries.filter((e) => e.segments[0] === wrapper);
+      const innerMaxDepth = Math.max(...inner.map((e) => e.segments.length));
+      if (innerMaxDepth <= 2) {
+        buckets = [{ label: wrapper, entries: inner }];
+      } else {
+        const subFolders = [...new Set(inner.map((e) => e.segments[1]))];
+        buckets = subFolders.map((folder) => ({ label: folder, entries: inner.filter((e) => e.segments[1] === folder) }));
+      }
+    }
+  }
+  buckets.sort((a, b) => naturalCompare(a.label || '', b.label || ''));
+  return buckets.map((b) => ({ label: b.label, count: b.entries.length, parsedNumber: b.label ? parseChapterNumFromName(b.label) : null }));
+}
+
+async function previewNovelZip(file) {
+  const zip = await JSZip.loadAsync(file);
+  const names = Object.values(zip.files)
+    .filter((f) => !f.dir && /\.(txt|epub)$/i.test(f.name))
+    .map((f) => f.name)
+    .sort(naturalCompare);
+  if (names.length === 0) throw new Error('لا توجد ملفات .txt أو .epub داخل الملف');
+  return names.map((name) => {
+    const base = name.split('/').pop().replace(/\.(txt|epub)$/i, '');
+    return { label: base, count: 1, parsedNumber: parseChapterNumFromName(base) };
+  });
+}
+
+function assignChapterNumbers(items, startNum) {
+  let nextSeq = startNum || 1;
+  return items.map((it) => {
+    const chapterNumber = it.parsedNumber ?? nextSeq;
+    if (it.parsedNumber == null) nextSeq += 1;
+    return { ...it, chapterNumber };
+  });
+}
+
+function renderZipPreview({ previewEl, files, startNumInput, kind }) {
+  previewEl.innerHTML = '';
+  if (files.length === 0) return;
+  const renderOne = async (file) => {
+    const box = document.createElement('div');
+    box.className = 'zip-preview';
+    box.innerHTML = `<div class="zpf">📦 ${file.name} -- جارِ تحليل المحتوى...</div>`;
+    previewEl.appendChild(box);
+    try {
+      const raw = kind === 'manga' ? await previewMangaZip(file) : await previewNovelZip(file);
+      const startNum = Number(startNumInput.value || 0) || null;
+      const assigned = assignChapterNumbers(raw, startNum);
+      const isMulti = assigned.length > 1;
+      box.innerHTML = `
+        <div class="zpf">📦 ${file.name} -- ${isMulti ? `${assigned.length} فصل متعدد` : 'فصل واحد'}${startNum ? ` (يبدأ من الفصل ${startNum})` : ''}</div>
+        ${assigned.map((it) => `<div class="zpc"><span>${it.label || '(بدون اسم فولدر)'}</span><span>الفصل ${it.chapterNumber} -- ${it.count} ${kind === 'manga' ? 'صورة' : 'ملف'}</span></div>`).join('')}
+      `;
+    } catch (err) {
+      box.innerHTML = `<div class="zpf" style="color:#f87171">📦 ${file.name} -- خطأ: ${err.message}</div>`;
+    }
+  };
+  files.forEach(renderOne);
+}
+
+// -------------------- Generic multi-file queued upload (progress % + pause/resume) --------------------
 async function uploadQueue({ files, queueEl, buildUrl }) {
   queueEl.innerHTML = '';
   for (const file of files) {
     const row = document.createElement('div');
     row.className = 'queue-item';
-    row.innerHTML = `<div class="top"><b>${file.name}</b><span class="st">جارِ الرفع...</span></div><small>${(file.size / 1024 / 1024).toFixed(1)} MB</small>`;
+    row.innerHTML = `
+      <div class="top"><b>${file.name}</b><span class="st">0%</span></div>
+      <small>${(file.size / 1024 / 1024).toFixed(1)} MB</small>
+      <div class="progress-bar"><div class="fill"></div></div>
+      <div class="btns">
+        <button class="secondary pause-btn">⏸️ إيقاف</button>
+        <button class="resume-btn" style="display:none">▶️ استئناف</button>
+      </div>
+    `;
     queueEl.appendChild(row);
     const stEl = row.querySelector('.st');
-    try {
-      const data = await apiFetch(buildUrl(file), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/zip' },
-        body: file,
+    const fillEl = row.querySelector('.fill');
+    const pauseBtn = row.querySelector('.pause-btn');
+    const resumeBtn = row.querySelector('.resume-btn');
+    const controller = { xhr: null, pausedByUser: false };
+
+    // `finalResolve` is shared across resume attempts so the outer queue
+    // loop only advances once this file truly finishes (success/error),
+    // not just when it's paused.
+    await new Promise((finalResolve) => {
+      const attempt = () => {
+        const xhr = new XMLHttpRequest();
+        controller.xhr = xhr;
+        xhr.open('POST', `${API_BASE}${buildUrl(file)}`);
+        xhr.setRequestHeader('X-Uploader-Key', getKey());
+        xhr.setRequestHeader('Content-Type', 'application/zip');
+        xhr.upload.onprogress = (e) => {
+          if (!e.lengthComputable) return;
+          const pct = Math.round((e.loaded / e.total) * 100);
+          fillEl.style.width = `${pct}%`;
+          if (!controller.pausedByUser) stEl.textContent = `${pct}%`;
+        };
+        xhr.onload = () => {
+          let data = {};
+          try { data = JSON.parse(xhr.responseText); } catch { /* ignore */ }
+          if (xhr.status >= 200 && xhr.status < 300 && data.ok !== false) {
+            const chapters = data.chapters || [];
+            const okCount = chapters.filter((c) => c.success).length;
+            stEl.textContent = `✓ ${okCount}/${chapters.length} فصل`;
+            stEl.style.color = '#4ade80';
+          } else {
+            stEl.textContent = `✗ ${data.error || `HTTP ${xhr.status}`}`;
+            stEl.style.color = '#f87171';
+          }
+          pauseBtn.style.display = 'none';
+          resumeBtn.style.display = 'none';
+          finalResolve();
+        };
+        xhr.onerror = () => {
+          stEl.textContent = '✗ خطأ شبكة'; stEl.style.color = '#f87171';
+          pauseBtn.style.display = 'none'; resumeBtn.style.display = 'none';
+          finalResolve();
+        };
+        xhr.onabort = () => {
+          if (controller.pausedByUser) {
+            stEl.textContent = `متوقف (${fillEl.style.width || '0%'})`;
+            pauseBtn.style.display = 'none';
+            resumeBtn.style.display = 'inline-block';
+          }
+        };
+        xhr.send(file);
+      };
+
+      pauseBtn.addEventListener('click', () => {
+        controller.pausedByUser = true;
+        if (controller.xhr) controller.xhr.abort();
       });
-      const chapters = data.chapters || [];
-      const okCount = chapters.filter((c) => c.success).length;
-      stEl.textContent = `✓ ${okCount}/${chapters.length} فصل`;
-      stEl.style.color = '#4ade80';
-    } catch (err) {
-      stEl.textContent = `✗ ${err.message}`;
-      stEl.style.color = '#f87171';
-    }
+      resumeBtn.addEventListener('click', () => {
+        // True byte-range resume isn't supported server-side; resuming
+        // re-sends this file from the start, it just doesn't re-touch
+        // files already finished earlier in the queue.
+        controller.pausedByUser = false;
+        resumeBtn.style.display = 'none';
+        pauseBtn.style.display = 'inline-block';
+        stEl.textContent = '0%';
+        fillEl.style.width = '0%';
+        attempt();
+      });
+
+      attempt();
+    });
   }
 }
 
@@ -140,6 +289,12 @@ wireWorkPicker({ searchId: 'novelWorkSearch', resultsId: 'novelWorkResults', hid
 wireWorkPicker({ searchId: 'epAnimeSearch', resultsId: 'epAnimeResults', hiddenId: 'epAnimeId', worksUrl: '/api/cache/uploader/anime/works' });
 
 // -------------------- Manga --------------------
+$('mangaZipFiles').addEventListener('change', () => {
+  renderZipPreview({ previewEl: $('mangaPreview'), files: Array.from($('mangaZipFiles').files), startNumInput: $('mangaStartNum'), kind: 'manga' });
+});
+$('mangaStartNum').addEventListener('input', () => {
+  renderZipPreview({ previewEl: $('mangaPreview'), files: Array.from($('mangaZipFiles').files), startNumInput: $('mangaStartNum'), kind: 'manga' });
+});
 $('mangaUploadBtn').addEventListener('click', async () => {
   const workId = $('mangaWorkId').value.trim();
   const startNum = $('mangaStartNum').value.trim();
@@ -157,6 +312,12 @@ $('mangaUploadBtn').addEventListener('click', async () => {
 });
 
 // -------------------- Novel --------------------
+$('novelZipFiles').addEventListener('change', () => {
+  renderZipPreview({ previewEl: $('novelPreview'), files: Array.from($('novelZipFiles').files), startNumInput: $('novelStartNum'), kind: 'novel' });
+});
+$('novelStartNum').addEventListener('input', () => {
+  renderZipPreview({ previewEl: $('novelPreview'), files: Array.from($('novelZipFiles').files), startNumInput: $('novelStartNum'), kind: 'novel' });
+});
 $('novelUploadBtn').addEventListener('click', async () => {
   const workId = $('novelWorkId').value.trim();
   const startNum = $('novelStartNum').value.trim();
@@ -194,32 +355,7 @@ $('anilistSearchBtn').addEventListener('click', async () => {
         </div>
         <button class="secondary small create-btn">إنشاء</button>
       `;
-      row.querySelector('.create-btn').addEventListener('click', async (e) => {
-        e.target.disabled = true;
-        e.target.textContent = 'جارِ الإنشاء...';
-        try {
-          const created = await apiFetch('/api/cache/uploader/anime/anilist-create', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              anilistId: r.anilistId,
-              titleRomaji: r.titleRomaji,
-              titleEnglish: r.titleEnglish,
-              coverUrl: r.coverUrl,
-              descriptionEn: r.descriptionEn,
-              genres: r.genres,
-              tags: r.tags,
-              status: r.status,
-              releaseYear: r.releaseYear,
-              studio: r.studio,
-            }),
-          });
-          e.target.textContent = `تم (${created.id})`;
-        } catch (err) {
-          e.target.textContent = `خطأ: ${err.message}`;
-          e.target.disabled = false;
-        }
-      });
+      row.querySelector('.create-btn').addEventListener('click', () => openAnilistCreateModal(r, row.querySelector('.create-btn')));
       resultsEl.appendChild(row);
     }
     if ((data.results || []).length === 0) resultsEl.innerHTML = '<p class="status">لا توجد نتائج</p>';
@@ -227,6 +363,74 @@ $('anilistSearchBtn').addEventListener('click', async () => {
     resultsEl.innerHTML = `<p class="status err">خطأ: ${err.message}</p>`;
   }
 });
+
+let genresCache = null;
+async function getGenres() {
+  if (genresCache) return genresCache;
+  const data = await apiFetch('/api/cache/uploader/genres');
+  genresCache = data.genres || [];
+  return genresCache;
+}
+
+async function openAnilistCreateModal(r, triggerBtn) {
+  const genres = await getGenres().catch(() => []);
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal-box">
+      <h2>مراجعة قبل الإنشاء</h2>
+      <label>العنوان بالعربي</label>
+      <input id="am-title-ar" value="${r.titleRomaji || ''}" />
+      <label>سنة الإصدار</label>
+      <input id="am-year" type="number" value="${r.releaseYear || ''}" />
+      <label>القصة (بالإنجليزي -- هتترجم تلقائيًا بعد الإنشاء)</label>
+      <textarea id="am-synopsis" rows="5" style="width:100%;background:#1a1a1a;border:1px solid #262626;color:#fff;border-radius:12px;padding:11px 13px;font-size:13px;margin-bottom:14px">${r.descriptionEn || ''}</textarea>
+      <label>التصنيفات (اختر من القائمة الثابتة)</label>
+      <div class="genre-grid" id="am-genres">
+        ${genres.map((g) => `<span class="genre-chip" data-g="${g}">${g}</span>`).join('')}
+      </div>
+      <div class="row">
+        <button id="am-confirm">إنشاء</button>
+        <button class="secondary" id="am-cancel">إلغاء</button>
+      </div>
+      <div id="am-status" class="status"></div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  const genresEl = $('am-genres');
+  genresEl.querySelectorAll('.genre-chip').forEach((chip) => {
+    chip.addEventListener('click', () => chip.classList.toggle('active'));
+  });
+  $('am-cancel').addEventListener('click', () => backdrop.remove());
+  $('am-confirm').addEventListener('click', async () => {
+    const statusEl = $('am-status');
+    const chosenGenres = Array.from(genresEl.querySelectorAll('.genre-chip.active')).map((c) => c.dataset.g);
+    statusEl.textContent = 'جارِ الإنشاء...'; statusEl.className = 'status';
+    try {
+      const created = await apiFetch('/api/cache/uploader/anime/anilist-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          anilistId: r.anilistId,
+          titleRomaji: $('am-title-ar').value.trim(),
+          titleEnglish: r.titleEnglish,
+          coverUrl: r.coverUrl,
+          descriptionEn: $('am-synopsis').value,
+          genres: chosenGenres,
+          tags: r.tags,
+          status: r.status,
+          releaseYear: $('am-year').value ? Number($('am-year').value) : null,
+          studio: r.studio,
+        }),
+      });
+      statusEl.textContent = `تم الإنشاء ✓ (${created.id})`; statusEl.className = 'status ok';
+      if (triggerBtn) { triggerBtn.textContent = `تم (${created.id})`; triggerBtn.disabled = true; }
+      setTimeout(() => backdrop.remove(), 1200);
+    } catch (err) {
+      statusEl.textContent = `خطأ: ${err.message}`; statusEl.className = 'status err';
+    }
+  });
+}
 
 // -------------------- Generic work manager (manga/novel/anime) --------------------
 // One implementation covers all three content types -- search a work, pick

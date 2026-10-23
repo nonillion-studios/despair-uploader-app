@@ -114,6 +114,19 @@
     .bulk-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 12px; background: #161616; border-radius: 12px; border: 1px solid #232323; }
     .bulk-bar input, .bulk-bar select { width: auto; margin: 0; padding: 7px 10px; font-size: 12px; }
     .bulk-bar span { color: #666; font-size: 11px; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal-box { background: #141414; border: 1px solid #262626; border-radius: 16px; padding: 22px 24px; width: 520px; max-height: 86vh; overflow-y: auto; }
+    .modal-box h2 { margin-top: 0; }
+    .genre-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+    .genre-chip { padding: 5px 11px; border: 1px solid #2a2a2a; border-radius: 999px; font-size: 12px; cursor: pointer; background: #1a1a1a; color: #ccc; user-select: none; }
+    .genre-chip.active { background: #6d2828; border-color: #a33; color: #fff; }
+    .zip-preview { background: #161616; border: 1px solid #262626; border-radius: 12px; padding: 10px 12px; margin: 10px 0; }
+    .zip-preview .zpf { font-size: 12px; font-weight: bold; margin: 8px 0 4px; }
+    .zip-preview .zpc { display: flex; justify-content: space-between; font-size: 12px; color: #aaa; padding: 3px 0; border-bottom: 1px solid #1f1f1f; }
+    .progress-bar { height: 7px; background: #222; border-radius: 99px; overflow: hidden; margin-top: 6px; }
+    .progress-bar .fill { height: 100%; background: #ef4444; width: 0%; transition: width .15s; }
+    .queue-item .btns { display: flex; gap: 6px; margin-top: 6px; }
+    .queue-item .btns button { padding: 3px 10px; font-size: 11px; width: auto; }
   </style>
 </head>
 <body>
@@ -149,6 +162,7 @@
         </div>
         <label>ملفات zip</label>
         <input id="mangaZipFiles" type="file" accept=".zip" multiple />
+        <div id="mangaPreview"></div>
         <button id="mangaUploadBtn">رفع</button>
         <div id="mangaQueue" style="margin-top:14px"></div>
       </div>
@@ -175,6 +189,7 @@
         </div>
         <label>ملفات zip</label>
         <input id="novelZipFiles" type="file" accept=".zip" multiple />
+        <div id="novelPreview"></div>
         <button id="novelUploadBtn">رفع</button>
         <div id="novelQueue" style="margin-top:14px"></div>
       </div>
@@ -237,6 +252,7 @@
     </section>
   </main>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>
