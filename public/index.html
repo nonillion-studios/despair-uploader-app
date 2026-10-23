@@ -6,96 +6,173 @@
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
     body {
-      margin: 0; font-family: 'Segoe UI', Tahoma, sans-serif;
-      background: #0a0a0a; color: #fff; padding: 20px;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: #0a0a0a; color: #fff;
+      display: flex; overflow: hidden;
     }
-    h1 { font-size: 18px; border-right: 3px solid #fff; padding-right: 10px; }
+
+    /* ---------- Sidebar ---------- */
+    #sidebar {
+      width: 220px; flex-shrink: 0; background: #0f0f0f;
+      border-left: 1px solid #1f1f1f; display: flex; flex-direction: column;
+      padding: 18px 12px;
+    }
+    #sidebar .brand {
+      display: flex; align-items: center; gap: 8px; padding: 0 6px 18px;
+      font-weight: 900; font-size: 15px;
+    }
+    #sidebar .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: #ef4444; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+      border-radius: 12px; color: #999; font-size: 13px; font-weight: bold;
+      cursor: pointer; margin-bottom: 4px; border: none; background: transparent;
+      width: 100%; text-align: right;
+    }
+    .nav-item:hover { background: #161616; color: #fff; }
+    .nav-item.active { background: #fff; color: #000; }
+    .nav-item .icon { width: 16px; text-align: center; }
+    #sidebar .spacer { flex: 1; }
+    #connStatus {
+      font-size: 11px; padding: 10px 12px; border-radius: 12px; background: #141414;
+      border: 1px solid #232323;
+    }
+    #connStatus .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-left: 6px; background: #555; }
+    #connStatus.ok .dot { background: #4ade80; }
+    #connStatus.err .dot { background: #f87171; }
+
+    /* ---------- Main ---------- */
+    #main { flex: 1; overflow-y: auto; padding: 28px 32px; }
+    h1 { font-size: 19px; margin: 0 0 4px; }
+    .subtitle { color: #777; font-size: 12px; margin: 0 0 22px; }
+
     .card {
-      background: #121212; border: 1px solid #232323; border-radius: 16px;
-      padding: 16px; margin-bottom: 16px;
+      background: #121212; border: 1px solid #1f1f1f; border-radius: 18px;
+      padding: 20px; margin-bottom: 18px;
     }
-    label { display: block; font-size: 12px; color: #999; margin-bottom: 6px; }
+    .card h2 { font-size: 13px; margin: 0 0 14px; display: flex; align-items: center; gap: 8px; }
+    label { display: block; font-size: 11px; color: #888; margin-bottom: 6px; font-weight: bold; }
     input, select {
       width: 100%; background: #1a1a1a; border: 1px solid #262626; color: #fff;
-      border-radius: 10px; padding: 10px; font-size: 13px; margin-bottom: 12px;
+      border-radius: 12px; padding: 11px 13px; font-size: 13px; margin-bottom: 14px;
+      outline: none; transition: border-color .15s;
     }
+    input:focus { border-color: #444; }
+    input[type="file"] { padding: 9px 13px; }
     button {
-      background: #fff; color: #000; border: none; border-radius: 10px;
-      padding: 10px 16px; font-weight: bold; font-size: 13px; cursor: pointer;
+      background: #fff; color: #000; border: none; border-radius: 12px;
+      padding: 11px 20px; font-weight: bold; font-size: 13px; cursor: pointer;
+      transition: opacity .15s;
     }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button:hover { opacity: .88; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
     button.secondary { background: #1a1a1a; color: #fff; border: 1px solid #262626; }
-    .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-    .tabs button { background: #1a1a1a; color: #999; border: 1px solid #262626; }
-    .tabs button.active { background: #fff; color: #000; }
+    button.small { padding: 6px 12px; font-size: 11px; border-radius: 9px; }
+
+    .row { display: flex; gap: 12px; }
+    .row > div { flex: 1; }
     .status { font-size: 12px; margin-top: 10px; white-space: pre-wrap; }
     .status.ok { color: #4ade80; }
     .status.err { color: #f87171; }
-    .row { display: flex; gap: 10px; }
-    .row > div { flex: 1; }
-    #queue { font-size: 12px; margin-top: 10px; }
-    .queue-item { padding: 6px 10px; background: #1a1a1a; border-radius: 8px; margin-bottom: 6px; display: flex; justify-content: space-between; }
+
+    .queue-item {
+      padding: 10px 14px; background: #161616; border: 1px solid #232323;
+      border-radius: 12px; margin-bottom: 8px; font-size: 12px;
+    }
+    .queue-item .top { display: flex; justify-content: space-between; align-items: center; }
+    .queue-item small { color: #777; }
+
+    .page { display: none; }
+    .page.active { display: block; }
+
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #0f0f0f; }
+    ::-webkit-scrollbar-thumb { background: #ef4444; border-radius: 99px; }
   </style>
 </head>
 <body>
-  <h1>Despair -- تطبيق الرفع</h1>
+  <aside id="sidebar">
+    <div class="brand"><span class="dot"></span> Despair Uploader</div>
+    <button class="nav-item active" data-page="manga"><span class="icon">📖</span> مانجا</button>
+    <button class="nav-item" data-page="novel"><span class="icon">📚</span> روايات</button>
+    <button class="nav-item" data-page="anime"><span class="icon">🎬</span> أنمي</button>
+    <button class="nav-item" data-page="settings"><span class="icon">⚙️</span> الإعدادات</button>
+    <div class="spacer"></div>
+    <div id="connStatus"><span class="dot"></span><span id="connText">غير متصل</span></div>
+  </aside>
 
-  <div class="card" id="keyCard">
-    <label>مفتاح API</label>
-    <input id="apiKey" type="password" placeholder="dsp_..." />
-    <button id="saveKeyBtn">حفظ المفتاح</button>
-    <div id="keyStatus" class="status"></div>
-  </div>
-
-  <div class="tabs">
-    <button data-tab="manga" class="active">مانجا</button>
-    <button data-tab="novel">روايات</button>
-    <button data-tab="anime">أنمي</button>
-  </div>
-
-  <div id="tab-manga" class="card">
-    <div class="row">
-      <div>
-        <label>معرّف العمل (work_id)</label>
-        <input id="mangaWorkId" placeholder="wp_xxxxx" />
+  <main id="main">
+    <!-- Manga -->
+    <section class="page active" id="page-manga">
+      <h1>رفع فصول المانجا</h1>
+      <p class="subtitle">ملف zip واحد أو أكتر -- يدعم فصل واحد أو مجلدات فصول متعددة جوه نفس الملف</p>
+      <div class="card">
+        <div class="row">
+          <div>
+            <label>معرّف العمل (work_id)</label>
+            <input id="mangaWorkId" placeholder="wp_xxxxx" />
+          </div>
+          <div>
+            <label>رقم الفصل الأول (اختياري)</label>
+            <input id="mangaStartNum" type="number" />
+          </div>
+        </div>
+        <label>ملفات zip</label>
+        <input id="mangaZipFiles" type="file" accept=".zip" multiple />
+        <button id="mangaUploadBtn">رفع</button>
+        <div id="mangaQueue" style="margin-top:14px"></div>
       </div>
-      <div>
-        <label>رقم الفصل الأول (اختياري)</label>
-        <input id="mangaStartNum" type="number" />
-      </div>
-    </div>
-    <label>ملف/ملفات الفصول (.zip) -- يدعم فصل واحد أو مجلدات متعددة جوه نفس الـzip</label>
-    <input id="mangaZipFiles" type="file" accept=".zip" multiple />
-    <button id="mangaUploadBtn">رفع</button>
-    <div id="mangaQueue"></div>
-  </div>
+    </section>
 
-  <div id="tab-novel" class="card" style="display:none">
-    <div class="row">
-      <div>
-        <label>معرّف العمل (work_id)</label>
-        <input id="novelWorkId" placeholder="np_xxxxx" />
+    <!-- Novel -->
+    <section class="page" id="page-novel">
+      <h1>رفع فصول الروايات</h1>
+      <p class="subtitle">ملف zip يحتوي .txt و/أو .epub -- كل ملف = فصل</p>
+      <div class="card">
+        <div class="row">
+          <div>
+            <label>معرّف العمل (work_id)</label>
+            <input id="novelWorkId" placeholder="np_xxxxx" />
+          </div>
+          <div>
+            <label>رقم الفصل الأول (اختياري)</label>
+            <input id="novelStartNum" type="number" />
+          </div>
+        </div>
+        <label>ملفات zip</label>
+        <input id="novelZipFiles" type="file" accept=".zip" multiple />
+        <button id="novelUploadBtn">رفع</button>
+        <div id="novelQueue" style="margin-top:14px"></div>
       </div>
-      <div>
-        <label>رقم الفصل الأول (اختياري)</label>
-        <input id="novelStartNum" type="number" />
-      </div>
-    </div>
-    <label>ملف/ملفات (.zip يحتوي .txt أو .epub)</label>
-    <input id="novelZipFiles" type="file" accept=".zip" multiple />
-    <button id="novelUploadBtn">رفع</button>
-    <div id="novelQueue"></div>
-  </div>
+    </section>
 
-  <div id="tab-anime" class="card" style="display:none">
-    <label>بحث AniList (اسم العمل)</label>
-    <div class="row">
-      <input id="anilistQuery" placeholder="Naruto, One Piece..." />
-      <button id="anilistSearchBtn" style="max-width:120px">بحث</button>
-    </div>
-    <div id="anilistResults"></div>
-  </div>
+    <!-- Anime -->
+    <section class="page" id="page-anime">
+      <h1>إنشاء عمل أنمي</h1>
+      <p class="subtitle">بحث AniList -- إنشاء فوري بدون انتظار موافقة، مع ترجمة الوصف والتصنيفات تلقائيًا</p>
+      <div class="card">
+        <div class="row">
+          <div><input id="anilistQuery" placeholder="Naruto, One Piece..." /></div>
+          <div style="flex:0 0 100px"><button id="anilistSearchBtn" style="width:100%">بحث</button></div>
+        </div>
+        <div id="anilistResults"></div>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section class="page" id="page-settings">
+      <h1>الإعدادات</h1>
+      <p class="subtitle">مفتاح الدخول الخاص بك على تطبيق الرفع</p>
+      <div class="card">
+        <h2>🔑 مفتاح API</h2>
+        <label>المفتاح</label>
+        <input id="apiKey" type="password" placeholder="dsp_..." />
+        <button id="saveKeyBtn">حفظ المفتاح</button>
+        <div id="keyStatus" class="status"></div>
+      </div>
+    </section>
+  </main>
 
   <script type="module" src="./src/main.js"></script>
 </body>

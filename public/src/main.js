@@ -29,7 +29,23 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
-// -------------------- API key --------------------
+// -------------------- Sidebar navigation --------------------
+document.querySelectorAll('.nav-item').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
+    btn.classList.add('active');
+    $(`page-${btn.dataset.page}`).classList.add('active');
+  });
+});
+
+// -------------------- API key / connection status --------------------
+function setConnStatus(connected, text) {
+  const el = $('connStatus');
+  el.className = connected ? 'ok' : 'err';
+  $('connText').textContent = text;
+}
+
 function setKeyStatus(text, cls) {
   const el = $('keyStatus');
   el.textContent = text;
@@ -37,11 +53,14 @@ function setKeyStatus(text, cls) {
 }
 
 async function checkKey() {
-  if (!getKey()) { setKeyStatus('لم يتم إدخال مفتاح بعد', ''); return; }
+  if (!getKey()) { setConnStatus(false, 'غير متصل'); setKeyStatus('لم يتم إدخال مفتاح بعد', ''); return; }
   try {
     const data = await apiFetch('/api/cache/uploader/whoami');
-    setKeyStatus(`متصل كـ ${data.username || data.userId} (${data.isAdmin ? 'أدمن' : 'مساعد'})`, 'ok');
+    const who = `${data.username || data.userId} (${data.isAdmin ? 'أدمن' : 'مساعد'})`;
+    setConnStatus(true, who);
+    setKeyStatus(`متصل كـ ${who}`, 'ok');
   } catch (err) {
+    setConnStatus(false, 'مفتاح غير صالح');
     setKeyStatus(`المفتاح غير صالح: ${err.message}`, 'err');
   }
 }
@@ -53,24 +72,13 @@ $('saveKeyBtn').addEventListener('click', () => {
 });
 checkKey();
 
-// -------------------- Tabs --------------------
-document.querySelectorAll('.tabs button').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tabs button').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    ['manga', 'novel', 'anime'].forEach((t) => {
-      $(`tab-${t}`).style.display = t === btn.dataset.tab ? 'block' : 'none';
-    });
-  });
-});
-
 // -------------------- Generic multi-file queued upload --------------------
 async function uploadQueue({ files, queueEl, buildUrl }) {
   queueEl.innerHTML = '';
   for (const file of files) {
     const row = document.createElement('div');
     row.className = 'queue-item';
-    row.innerHTML = `<span>${file.name}</span><span class="st">...</span>`;
+    row.innerHTML = `<div class="top"><b>${file.name}</b><span class="st">جارِ الرفع...</span></div><small>${(file.size / 1024 / 1024).toFixed(1)} MB</small>`;
     queueEl.appendChild(row);
     const stEl = row.querySelector('.st');
     try {
@@ -129,21 +137,19 @@ $('anilistSearchBtn').addEventListener('click', async () => {
   const q = $('anilistQuery').value.trim();
   const resultsEl = $('anilistResults');
   if (!q) return;
-  resultsEl.innerHTML = 'جارِ البحث...';
+  resultsEl.innerHTML = '<p class="status">جارِ البحث...</p>';
   try {
     const data = await apiFetch(`/api/cache/uploader/anime/anilist-search?q=${encodeURIComponent(q)}`);
     resultsEl.innerHTML = '';
     for (const r of data.results || []) {
       const row = document.createElement('div');
       row.className = 'queue-item';
-      row.style.flexDirection = 'column';
-      row.style.alignItems = 'flex-start';
       row.innerHTML = `
-        <div style="display:flex;justify-content:space-between;width:100%">
+        <div class="top">
           <b>${r.titleRomaji}</b>
-          <button class="secondary create-btn" style="padding:4px 10px">إنشاء</button>
+          <button class="secondary small create-btn">إنشاء</button>
         </div>
-        <small style="color:#888">${r.releaseYear || ''} -- ${r.episodesCount || '?'} حلقة -- ${r.genres.join('، ')}</small>
+        <small>${r.releaseYear || ''} -- ${r.episodesCount || '?'} حلقة -- ${r.genres.join('، ')}</small>
       `;
       row.querySelector('.create-btn').addEventListener('click', async (e) => {
         e.target.disabled = true;
@@ -173,8 +179,8 @@ $('anilistSearchBtn').addEventListener('click', async () => {
       });
       resultsEl.appendChild(row);
     }
-    if ((data.results || []).length === 0) resultsEl.innerHTML = 'لا توجد نتائج';
+    if ((data.results || []).length === 0) resultsEl.innerHTML = '<p class="status">لا توجد نتائج</p>';
   } catch (err) {
-    resultsEl.innerHTML = `خطأ: ${err.message}`;
+    resultsEl.innerHTML = `<p class="status err">خطأ: ${err.message}</p>`;
   }
 });
