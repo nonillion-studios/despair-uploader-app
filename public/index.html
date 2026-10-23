@@ -89,6 +89,28 @@
     ::-webkit-scrollbar { width: 8px; }
     ::-webkit-scrollbar-track { background: #0f0f0f; }
     ::-webkit-scrollbar-thumb { background: #ef4444; border-radius: 99px; }
+
+    .work-pick { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: #161616; border: 1px solid #232323; border-radius: 12px; margin-bottom: 6px; cursor: pointer; }
+    .work-pick:hover { border-color: #3a3a3a; }
+    .work-pick img { width: 34px; height: 46px; object-fit: cover; border-radius: 6px; background: #222; flex-shrink: 0; }
+    .work-pick .meta { flex: 1; min-width: 0; }
+    .work-pick .meta b { font-size: 12px; display: block; }
+    .work-pick .meta small { color: #777; }
+
+    .selected-work { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .selected-work img { width: 44px; height: 60px; object-fit: cover; border-radius: 8px; background: #222; }
+    .selected-work .meta { flex: 1; }
+    .selected-work .meta b { font-size: 14px; }
+
+    table.ch-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    table.ch-table th { text-align: right; color: #777; font-size: 11px; padding: 6px 8px; border-bottom: 1px solid #232323; }
+    table.ch-table td { padding: 7px 8px; border-bottom: 1px solid #1a1a1a; }
+    table.ch-table tr:hover td { background: #141414; }
+    table.ch-table input[type="checkbox"] { margin: 0; }
+
+    .bulk-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 12px; background: #161616; border-radius: 12px; border: 1px solid #232323; }
+    .bulk-bar input, .bulk-bar select { width: auto; margin: 0; padding: 7px 10px; font-size: 12px; }
+    .bulk-bar span { color: #666; font-size: 11px; }
   </style>
 </head>
 <body>
@@ -105,9 +127,11 @@
   <main id="main">
     <!-- Manga -->
     <section class="page active" id="page-manga">
-      <h1>رفع فصول المانجا</h1>
-      <p class="subtitle">ملف zip واحد أو أكتر -- يدعم فصل واحد أو مجلدات فصول متعددة جوه نفس الملف</p>
+      <h1>المانجا والمانهوا</h1>
+      <p class="subtitle">ابحث عن عمل موجود أو ارفع فصول جديدة</p>
+      <div id="manga-manager"></div>
       <div class="card">
+        <h2>⬆️ رفع فصول (zip)</h2>
         <div class="row">
           <div>
             <label>معرّف العمل (work_id)</label>
@@ -127,9 +151,11 @@
 
     <!-- Novel -->
     <section class="page" id="page-novel">
-      <h1>رفع فصول الروايات</h1>
-      <p class="subtitle">ملف zip يحتوي .txt و/أو .epub -- كل ملف = فصل</p>
+      <h1>الروايات</h1>
+      <p class="subtitle">ابحث عن عمل موجود أو ارفع فصول جديدة</p>
+      <div id="novel-manager"></div>
       <div class="card">
+        <h2>⬆️ رفع فصول (zip يحتوي .txt و/أو .epub)</h2>
         <div class="row">
           <div>
             <label>معرّف العمل (work_id)</label>
@@ -149,9 +175,12 @@
 
     <!-- Anime -->
     <section class="page" id="page-anime">
-      <h1>إنشاء عمل أنمي</h1>
-      <p class="subtitle">بحث AniList -- إنشاء فوري بدون انتظار موافقة، مع ترجمة الوصف والتصنيفات تلقائيًا</p>
+      <h1>الأنمي</h1>
+      <p class="subtitle">ابحث عن عمل موجود، أو أنشئ عمل جديد عن طريق AniList</p>
+      <div id="anime-manager"></div>
       <div class="card">
+        <h2>🔎 إنشاء عمل جديد عن طريق AniList</h2>
+        <p class="subtitle" style="margin:0 0 10px">إنشاء فوري بدون انتظار موافقة، مع ترجمة الوصف والتصنيفات تلقائيًا</p>
         <div class="row">
           <div><input id="anilistQuery" placeholder="Naruto, One Piece..." /></div>
           <div style="flex:0 0 100px"><button id="anilistSearchBtn" style="width:100%">بحث</button></div>
