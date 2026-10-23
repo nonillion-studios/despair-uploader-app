@@ -135,6 +135,7 @@
     <button class="nav-item active" data-page="manga"><span class="icon">📖</span> مانجا</button>
     <button class="nav-item" data-page="novel"><span class="icon">📚</span> روايات</button>
     <button class="nav-item" data-page="anime"><span class="icon">🎬</span> أنمي</button>
+    <button class="nav-item" data-page="scrape"><span class="icon">🌐</span> مصادر خارجية</button>
     <button class="nav-item" data-page="settings"><span class="icon">⚙️</span> الإعدادات</button>
     <div class="spacer"></div>
     <div id="connStatus"><span class="dot"></span><span id="connText">غير متصل</span></div>
@@ -238,6 +239,74 @@
       </div>
     </section>
 
+    <!-- External scraping sources -->
+    <section class="page" id="page-scrape">
+      <h1>مصادر خارجية</h1>
+      <p class="subtitle">سحب مانجا/مانهوا من مانجاليك أو أزورا (مانجا أونلاين)، أو روايات من كول نوفل -- يعمل محليًا على جهازك</p>
+      <div class="card">
+        <h2>🔎 جلب عمل</h2>
+        <div class="row">
+          <div style="flex:0 0 180px">
+            <label>المصدر</label>
+            <select id="scrapeSite">
+              <option value="mangalek">مانجاليك (مانجا)</option>
+              <option value="azora">أزورا -- مانجا أونلاين (مانجا)</option>
+              <option value="kolnovel">كول نوفل (رواية)</option>
+            </select>
+          </div>
+          <div style="flex:1">
+            <label>رابط العمل</label>
+            <input id="scrapeUrl" placeholder="https://..." />
+          </div>
+        </div>
+        <div class="row" id="scrapeCfRow">
+          <div>
+            <label>cf_clearance (لمانجاليك فقط)</label>
+            <input id="scrapeCf" placeholder="قيمة الكوكي" />
+          </div>
+          <div>
+            <label>User-Agent (اختياري)</label>
+            <input id="scrapeUa" placeholder="يُترك فارغًا للافتراضي" />
+          </div>
+        </div>
+        <button id="scrapeFetchBtn">جلب المعلومات</button>
+        <div id="scrapeStatus" class="status"></div>
+      </div>
+
+      <div class="card" id="scrapePreviewCard" style="display:none">
+        <h2 id="scrapeTitle">—</h2>
+        <div class="row">
+          <img id="scrapeCover" style="width:90px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #262626;display:none" />
+          <div style="flex:1">
+            <p id="scrapeDesc" class="subtitle" style="margin:0 0 6px"></p>
+            <small id="scrapeMeta" style="color:#777"></small>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div style="position:relative;flex:1">
+            <label>ارفع إلى عمل موجود (بحث) -- أو اتركه فارغًا لإنشاء عمل جديد</label>
+            <input id="scrapeWorkSearch" placeholder="ابحث عن عمل موجود..." autocomplete="off" />
+            <input type="hidden" id="scrapeWorkId" />
+            <div id="scrapeWorkResults" class="work-pick-list"></div>
+          </div>
+          <div>
+            <label>رقم الفصل الأول (اختياري)</label>
+            <input id="scrapeStartNum" type="number" />
+          </div>
+        </div>
+        <label style="margin-top:10px">الفصول (اختر نطاقًا أو حدد يدويًا)</label>
+        <div class="bulk-bar" style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <input id="scrapeRangeFrom" type="number" placeholder="من" style="width:90px" />
+          <input id="scrapeRangeTo" type="number" placeholder="إلى" style="width:90px" />
+          <button type="button" class="secondary" id="scrapeRangeBtn" style="width:auto">تحديد</button>
+          <button type="button" class="secondary" id="scrapeAllBtn" style="width:auto">تحديد الكل</button>
+        </div>
+        <div id="scrapeChapterTable" class="ch-table" style="max-height:260px;overflow-y:auto"></div>
+        <button id="scrapeDownloadBtn" style="margin-top:12px">⬇️ تحميل ورفع المحدد</button>
+        <div id="scrapeProgress" class="zip-preview" style="display:none"></div>
+      </div>
+    </section>
+
     <!-- Settings -->
     <section class="page" id="page-settings">
       <h1>الإعدادات</h1>
@@ -253,6 +322,7 @@
   </main>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script type="module" src="./src/scrape.js"></script>
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>
