@@ -157,8 +157,19 @@ function renderZipPreview({ previewEl, files, startNumInput, kind }) {
   files.forEach(renderOne);
 }
 
-// -------------------- Generic multi-file queued upload (progress % + pause/resume) --------------------
-async function uploadQueue({ files, queueEl, buildUrl }) {
+// -------------------- Generic multi-file queued upload (chunked, real byte-level pause/resume) --------------------
+// Large zips (hundreds of MB) get reset by Cloudflare's per-request upload
+// cap if sent as one POST, so files are split into small chunks and sent
+// sequentially to /api/cache/uploader/chapter-zip/chunk -- pausing just
+// stops sending the next chunk, and resuming continues from exactly that
+// chunk (not a restart), since each chunk only covers a few MB.
+const CHUNK_SIZE = 8 * 1024 * 1024;
+
+function makeUploadId() {
+  return `up_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function uploadQueue({ files, queueEl, buildChunkQs }) {
   queueEl.innerHTML = '';
   for (const file of files) {
     const row = document.createElement('div');
@@ -177,72 +188,75 @@ async function uploadQueue({ files, queueEl, buildUrl }) {
     const fillEl = row.querySelector('.fill');
     const pauseBtn = row.querySelector('.pause-btn');
     const resumeBtn = row.querySelector('.resume-btn');
-    const controller = { xhr: null, pausedByUser: false };
 
-    // `finalResolve` is shared across resume attempts so the outer queue
-    // loop only advances once this file truly finishes (success/error),
-    // not just when it's paused.
+    const uploadId = makeUploadId();
+    const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+    const controller = { pausedByUser: false, nextChunk: 0 };
+
+    const sendChunk = (index) => new Promise((resolve, reject) => {
+      const start = index * CHUNK_SIZE;
+      const blob = file.slice(start, Math.min(start + CHUNK_SIZE, file.size));
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE}${buildChunkQs(file)}`);
+      xhr.setRequestHeader('X-Uploader-Key', getKey());
+      xhr.setRequestHeader('X-Upload-Id', uploadId);
+      xhr.setRequestHeader('X-Chunk-Index', String(index));
+      xhr.setRequestHeader('X-Chunk-Total', String(totalChunks));
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.onload = () => {
+        let data = {};
+        try { data = JSON.parse(xhr.responseText); } catch { /* ignore */ }
+        if (xhr.status >= 200 && xhr.status < 300 && data.ok !== false) resolve(data);
+        else reject(new Error(data.error || `HTTP ${xhr.status}`));
+      };
+      xhr.onerror = () => reject(new Error('خطأ شبكة'));
+      xhr.send(blob);
+    });
+
     await new Promise((finalResolve) => {
-      const attempt = () => {
-        const xhr = new XMLHttpRequest();
-        controller.xhr = xhr;
-        xhr.open('POST', `${API_BASE}${buildUrl(file)}`);
-        xhr.setRequestHeader('X-Uploader-Key', getKey());
-        xhr.setRequestHeader('Content-Type', 'application/zip');
-        xhr.upload.onprogress = (e) => {
-          if (!e.lengthComputable) return;
-          const pct = Math.round((e.loaded / e.total) * 100);
-          fillEl.style.width = `${pct}%`;
-          if (!controller.pausedByUser) stEl.textContent = `${pct}%`;
-        };
-        xhr.onload = () => {
-          let data = {};
-          try { data = JSON.parse(xhr.responseText); } catch { /* ignore */ }
-          if (xhr.status >= 200 && xhr.status < 300 && data.ok !== false) {
-            const chapters = data.chapters || [];
-            const okCount = chapters.filter((c) => c.success).length;
-            stEl.textContent = `✓ ${okCount}/${chapters.length} فصل`;
-            stEl.style.color = '#4ade80';
-          } else {
-            stEl.textContent = `✗ ${data.error || `HTTP ${xhr.status}`}`;
-            stEl.style.color = '#f87171';
-          }
-          pauseBtn.style.display = 'none';
-          resumeBtn.style.display = 'none';
-          finalResolve();
-        };
-        xhr.onerror = () => {
-          stEl.textContent = '✗ خطأ شبكة'; stEl.style.color = '#f87171';
-          pauseBtn.style.display = 'none'; resumeBtn.style.display = 'none';
-          finalResolve();
-        };
-        xhr.onabort = () => {
-          if (controller.pausedByUser) {
-            stEl.textContent = `متوقف (${fillEl.style.width || '0%'})`;
+      const runFrom = async (startIndex) => {
+        for (let i = startIndex; i < totalChunks; i++) {
+          if (controller.pausedByUser) { controller.nextChunk = i; return; }
+          try {
+            const data = await sendChunk(i);
+            controller.nextChunk = i + 1;
+            const pct = Math.round(((i + 1) / totalChunks) * 100);
+            fillEl.style.width = `${pct}%`;
+            stEl.textContent = `${pct}%`;
+            if (i === totalChunks - 1) {
+              const chapters = data.chapters || [];
+              const okCount = chapters.filter((c) => c.success).length;
+              stEl.textContent = `✓ ${okCount}/${chapters.length} فصل`;
+              stEl.style.color = '#4ade80';
+              pauseBtn.style.display = 'none';
+              resumeBtn.style.display = 'none';
+              finalResolve();
+              return;
+            }
+          } catch (err) {
+            stEl.textContent = `✗ ${err.message}`; stEl.style.color = '#f87171';
             pauseBtn.style.display = 'none';
             resumeBtn.style.display = 'inline-block';
+            controller.nextChunk = i;
+            return;
           }
-        };
-        xhr.send(file);
+        }
       };
 
       pauseBtn.addEventListener('click', () => {
         controller.pausedByUser = true;
-        if (controller.xhr) controller.xhr.abort();
+        stEl.textContent = `متوقف (${fillEl.style.width || '0%'})`;
+        pauseBtn.style.display = 'none';
+        resumeBtn.style.display = 'inline-block';
       });
       resumeBtn.addEventListener('click', () => {
-        // True byte-range resume isn't supported server-side; resuming
-        // re-sends this file from the start, it just doesn't re-touch
-        // files already finished earlier in the queue.
         controller.pausedByUser = false;
         resumeBtn.style.display = 'none';
         pauseBtn.style.display = 'inline-block';
-        stEl.textContent = '0%';
-        fillEl.style.width = '0%';
-        attempt();
+        runFrom(controller.nextChunk);
       });
 
-      attempt();
+      runFrom(0);
     });
   }
 }
@@ -303,10 +317,10 @@ $('mangaUploadBtn').addEventListener('click', async () => {
   await uploadQueue({
     files,
     queueEl: $('mangaQueue'),
-    buildUrl: () => {
-      const qs = new URLSearchParams({ work_id: workId });
+    buildChunkQs: () => {
+      const qs = new URLSearchParams({ kind: 'manga', work_id: workId });
       if (startNum) qs.set('start_chapter_number', startNum);
-      return `/api/cache/uploader/manga/chapter-zip?${qs}`;
+      return `/api/cache/uploader/chapter-zip/chunk?${qs}`;
     },
   });
 });
@@ -326,10 +340,10 @@ $('novelUploadBtn').addEventListener('click', async () => {
   await uploadQueue({
     files,
     queueEl: $('novelQueue'),
-    buildUrl: () => {
-      const qs = new URLSearchParams({ work_id: workId });
+    buildChunkQs: () => {
+      const qs = new URLSearchParams({ kind: 'novel', work_id: workId });
       if (startNum) qs.set('start_chapter_number', startNum);
-      return `/api/cache/uploader/novel/chapters-zip?${qs}`;
+      return `/api/cache/uploader/chapter-zip/chunk?${qs}`;
     },
   });
 });
