@@ -211,15 +211,78 @@ function renderWorkManager(containerId, cfg) {
   root.innerHTML = `
     <div class="card">
       <h2>🔍 بحث عن ${cfg.label}</h2>
-      <input id="${containerId}-search" placeholder="ابحث بالاسم..." />
+      <div class="row">
+        <input id="${containerId}-search" placeholder="ابحث بالاسم..." />
+        ${cfg.createUrl ? `<div style="flex:0 0 130px"><button class="secondary" id="${containerId}-newBtn" style="width:100%">➕ عمل جديد</button></div>` : ''}
+      </div>
       <div id="${containerId}-results"></div>
     </div>
+    <div class="card" id="${containerId}-form" style="display:none"></div>
     <div class="card" id="${containerId}-detail" style="display:none"></div>
   `;
 
   const searchInput = $(`${containerId}-search`);
   const resultsEl = $(`${containerId}-results`);
   const detailEl = $(`${containerId}-detail`);
+  const formEl = $(`${containerId}-form`);
+
+  const WORK_FIELDS = [
+    ['title_ar', 'العنوان بالعربي', 'text'],
+    ['title_en', 'العنوان بالإنجليزي', 'text'],
+    ['cover_url', 'رابط الغلاف', 'text'],
+    ['author_or_studio', cfg.authorLabel || 'المؤلف', 'text'],
+    ['release_year', 'سنة الإصدار', 'number'],
+    ['status', 'الحالة (مستمر/مكتمل)', 'text'],
+    ['genres', 'التصنيفات (مفصولة بفاصلة)', 'text'],
+    ['synopsis', 'القصة', 'textarea'],
+  ];
+
+  function renderWorkForm(existing) {
+    formEl.style.display = 'block';
+    const vals = existing || {};
+    formEl.innerHTML = `
+      <h2>${existing ? '✏️ تعديل العمل' : '➕ إنشاء عمل جديد'}</h2>
+      ${WORK_FIELDS.map(([key, label, type]) => {
+        const value = key === 'genres' ? (vals.genres || []).join('، ') : (vals[key] ?? '');
+        return type === 'textarea'
+          ? `<label>${label}</label><textarea id="${containerId}-f-${key}" rows="4" style="width:100%;background:#1a1a1a;border:1px solid #262626;color:#fff;border-radius:12px;padding:11px 13px;font-size:13px;margin-bottom:14px">${value}</textarea>`
+          : `<label>${label}</label><input id="${containerId}-f-${key}" type="${type}" value="${value}" />`;
+      }).join('')}
+      <div class="row">
+        <button id="${containerId}-f-save">${existing ? 'حفظ التعديلات' : 'إنشاء'}</button>
+        <button class="secondary" id="${containerId}-f-cancel">إلغاء</button>
+      </div>
+      <div id="${containerId}-f-status" class="status"></div>
+    `;
+    $(`${containerId}-f-cancel`).addEventListener('click', () => { formEl.style.display = 'none'; });
+    $(`${containerId}-f-save`).addEventListener('click', async () => {
+      const statusEl = $(`${containerId}-f-status`);
+      const payload = {};
+      for (const [key] of WORK_FIELDS) {
+        const raw = $(`${containerId}-f-${key}`).value;
+        if (key === 'genres') payload.genres = raw.split(/[,،]/).map((g) => g.trim()).filter(Boolean);
+        else if (key === 'release_year') payload.release_year = raw ? Number(raw) : null;
+        else payload[key] = raw;
+      }
+      statusEl.textContent = 'جارِ الحفظ...'; statusEl.className = 'status';
+      try {
+        if (existing) {
+          await apiFetch(cfg.updateUrl(existing.id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          Object.assign(existing, payload);
+          statusEl.textContent = 'تم الحفظ ✓'; statusEl.className = 'status ok';
+          renderSelectedHeader();
+        } else {
+          const created = await apiFetch(cfg.createUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          statusEl.textContent = `تم الإنشاء: ${created.id} ✓`; statusEl.className = 'status ok';
+          doSearch();
+        }
+      } catch (err) {
+        statusEl.textContent = `خطأ: ${err.message}`; statusEl.className = 'status err';
+      }
+    });
+  }
+
+  if (cfg.createUrl) $(`${containerId}-newBtn`).addEventListener('click', () => renderWorkForm(null));
 
   let searchTimer;
   searchInput.addEventListener('input', () => {
@@ -247,14 +310,22 @@ function renderWorkManager(containerId, cfg) {
   }
   doSearch();
 
+  function renderSelectedHeader() {
+    const w = selectedWork;
+    const header = detailEl.querySelector('.selected-work');
+    if (header) header.querySelector('b').textContent = w.title_ar;
+  }
+
   async function selectWork(w) {
     selectedWork = w;
     checked = new Set();
+    formEl.style.display = 'none';
     detailEl.style.display = 'block';
     detailEl.innerHTML = `
       <div class="selected-work">
         <img src="${w.cover_url || ''}" />
         <div class="meta"><b>${w.title_ar}</b></div>
+        <button class="secondary small" id="${containerId}-edit">✏️ تعديل</button>
         <button class="secondary small" id="${containerId}-close">إغلاق</button>
       </div>
       <div class="bulk-bar">
@@ -275,6 +346,7 @@ function renderWorkManager(containerId, cfg) {
       </div>
     `;
     $(`${containerId}-close`).addEventListener('click', () => { detailEl.style.display = 'none'; selectedWork = null; });
+    $(`${containerId}-edit`).addEventListener('click', () => renderWorkForm(selectedWork));
     $(`${containerId}-selectRange`).addEventListener('click', selectRange);
     $(`${containerId}-transferBtn`).addEventListener('click', doTransfer);
     $(`${containerId}-deleteBtn`).addEventListener('click', doDelete);
@@ -365,6 +437,7 @@ renderWorkManager('manga-manager', {
   label: 'عمل مانجا/مانهوا',
   itemLabel: 'فصل',
   countField: 'chapters_count',
+  authorLabel: 'المؤلف',
   worksUrl: '/api/cache/uploader/manga/works',
   itemsUrl: (id) => `/api/cache/uploader/manga/works/${id}/chapters`,
   itemsKey: 'chapters',
@@ -372,12 +445,15 @@ renderWorkManager('manga-manager', {
   workIdField: 'work_id',
   bulkDeleteUrl: '/api/cache/uploader/manga/chapters/bulk-delete',
   transferUrl: '/api/cache/uploader/manga/chapters/transfer-team',
+  createUrl: '/api/cache/uploader/manga/work',
+  updateUrl: (id) => `/api/cache/uploader/manga/work/${id}`,
 });
 
 renderWorkManager('novel-manager', {
   label: 'رواية',
   itemLabel: 'فصل',
   countField: 'chapters_count',
+  authorLabel: 'المؤلف',
   worksUrl: '/api/cache/uploader/novel/works',
   itemsUrl: (id) => `/api/cache/uploader/novel/works/${id}/chapters`,
   itemsKey: 'chapters',
@@ -385,12 +461,15 @@ renderWorkManager('novel-manager', {
   workIdField: 'work_id',
   bulkDeleteUrl: '/api/cache/uploader/novel/chapters/bulk-delete',
   transferUrl: '/api/cache/uploader/novel/chapters/transfer-team',
+  createUrl: '/api/cache/uploader/novel/work',
+  updateUrl: (id) => `/api/cache/uploader/novel/work/${id}`,
 });
 
 renderWorkManager('anime-manager', {
   label: 'عمل أنمي',
   itemLabel: 'حلقة',
   countField: 'episodes_count',
+  authorLabel: 'الاستوديو',
   worksUrl: '/api/cache/uploader/anime/works',
   itemsUrl: (id) => `/api/cache/uploader/anime/works/${id}/episodes`,
   itemsKey: 'episodes',
@@ -398,4 +477,7 @@ renderWorkManager('anime-manager', {
   workIdField: 'anime_id',
   bulkDeleteUrl: '/api/cache/uploader/anime/episodes/bulk-delete',
   transferUrl: '/api/cache/uploader/anime/episodes/transfer-team',
+  // No createUrl -- anime works are created via the AniList flow below,
+  // not a blank manual form.
+  updateUrl: (id) => `/api/cache/uploader/anime/work/${id}`,
 });

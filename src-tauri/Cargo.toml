@@ -1,6 +1,6 @@
 [package]
 name = "despair-uploader-app"
-version = "0.1.2"
+version = "0.1.3"
 description = "Despair admin uploader"
 edition = "2021"
 
